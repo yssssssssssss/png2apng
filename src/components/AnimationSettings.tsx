@@ -77,10 +77,6 @@ export function AnimationSettings({ className = '' }: AnimationSettingsProps) {
               >
                 <option value={0}>无限循环</option>
                 <option value={1}>播放1次</option>
-                <option value={2}>播放2次</option>
-                <option value={3}>播放3次</option>
-                <option value={5}>播放5次</option>
-                <option value={10}>播放10次</option>
               </select>
             </div>
             <p className="text-xs text-gray-500">

@@ -38,11 +38,11 @@ export function PreviewDownload({ className = '' }: PreviewDownloadProps) {
     }
   };
 
-  // 下载APNG
+  // 下载PNG文件
   const handleDownload = () => {
     if (!state.generatedApng) return;
     
-    const filename = `animation_${Date.now()}.apng`;
+    const filename = `animation_${Date.now()}.png`;
     downloadBlob(state.generatedApng, filename);
   };
 
@@ -111,7 +111,7 @@ export function PreviewDownload({ className = '' }: PreviewDownloadProps) {
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-all shadow-md hover:shadow-lg"
           >
             <Download className="w-5 h-5" />
-            下载APNG文件
+            下载PNG文件
           </button>
         )}
       </div>

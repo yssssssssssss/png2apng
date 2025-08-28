@@ -1,6 +1,57 @@
 import UPNG from 'upng-js';
 import { FrameData, AnimationConfig } from '../types';
 
+// CRC32计算函数
+function crc32(data: Uint8Array): number {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) {
+      c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c;
+  }
+  
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) {
+    crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// 修改APNG的循环次数
+function setAPNGLoopCount(buffer: ArrayBuffer, loops: number): ArrayBuffer {
+  const view = new Uint8Array(buffer);
+  const result = new Uint8Array(buffer.byteLength);
+  result.set(view);
+  
+  // 查找acTL chunk
+  let offset = 8; // 跳过PNG签名
+  
+  while (offset < result.length - 8) {
+    const chunkLength = new DataView(result.buffer, offset).getUint32(0);
+    const chunkType = new TextDecoder().decode(result.slice(offset + 4, offset + 8));
+    
+    if (chunkType === 'acTL') {
+      // 找到acTL chunk，修改num_plays字段
+      // acTL chunk结构：length(4) + type(4) + num_frames(4) + num_plays(4) + crc(4)
+      const dataView = new DataView(result.buffer, offset + 8); // 跳过length和type
+      dataView.setUint32(4, loops); // 设置num_plays字段（offset + 12）
+      
+      // 重新计算CRC
+      const chunkData = result.slice(offset + 4, offset + 8 + chunkLength);
+      const newCrc = crc32(chunkData);
+      new DataView(result.buffer, offset + 8 + chunkLength).setUint32(0, newCrc);
+      
+      break;
+    }
+    
+    offset += 8 + chunkLength + 4; // 移动到下一个chunk
+  }
+  
+  return result.buffer;
+}
+
 // 将图片文件转换为ImageData
 function fileToImageData(file: File): Promise<ImageData> {
   return new Promise((resolve, reject) => {
@@ -31,43 +82,28 @@ function fileToImageData(file: File): Promise<ImageData> {
   });
 }
 
-// 压缩ImageData
+// 压缩ImageData - 通过减少颜色深度来实现文件体积压缩
 function compressImageData(imageData: ImageData, quality: number): ImageData {
-  // 简单的质量压缩实现
+  // 如果质量设置为100%，不进行压缩
   if (quality >= 100) return imageData;
   
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  const data = new Uint8ClampedArray(imageData.data);
   
-  if (!ctx) return imageData;
+  // 根据质量参数计算颜色量化级别
+  // quality: 0-100, 转换为量化级别 2-256
+  const quantizationLevel = Math.max(2, Math.floor((quality / 100) * 254) + 2);
+  const step = 256 / quantizationLevel;
   
-  canvas.width = imageData.width;
-  canvas.height = imageData.height;
-  ctx.putImageData(imageData, 0, 0);
+  // 对每个像素进行颜色量化
+  for (let i = 0; i < data.length; i += 4) {
+    // 量化RGB通道，保持Alpha通道不变
+    data[i] = Math.floor(data[i] / step) * step;     // Red
+    data[i + 1] = Math.floor(data[i + 1] / step) * step; // Green
+    data[i + 2] = Math.floor(data[i + 2] / step) * step; // Blue
+    // Alpha通道保持不变: data[i + 3]
+  }
   
-  // 使用canvas的压缩功能
-  const compressedCanvas = document.createElement('canvas');
-  const compressedCtx = compressedCanvas.getContext('2d');
-  
-  if (!compressedCtx) return imageData;
-  
-  const scale = quality / 100;
-  compressedCanvas.width = Math.floor(imageData.width * scale);
-  compressedCanvas.height = Math.floor(imageData.height * scale);
-  
-  compressedCtx.drawImage(canvas, 0, 0, compressedCanvas.width, compressedCanvas.height);
-  
-  // 重新调整到原始尺寸
-  const finalCanvas = document.createElement('canvas');
-  const finalCtx = finalCanvas.getContext('2d');
-  
-  if (!finalCtx) return imageData;
-  
-  finalCanvas.width = imageData.width;
-  finalCanvas.height = imageData.height;
-  finalCtx.drawImage(compressedCanvas, 0, 0, imageData.width, imageData.height);
-  
-  return finalCtx.getImageData(0, 0, imageData.width, imageData.height);
+  return new ImageData(data, imageData.width, imageData.height);
 }
 
 // 生成APNG
@@ -114,7 +150,10 @@ export async function generateAPNG(
       delays
     );
     
-    return new Blob([apngBuffer], { type: 'image/apng' });
+    // 修改APNG的循环次数
+    const modifiedBuffer = setAPNGLoopCount(apngBuffer, config.loops);
+    
+    return new Blob([modifiedBuffer], { type: 'image/apng' });
   } catch (error) {
     console.error('APNG生成失败:', error);
     throw new Error(`APNG生成失败: ${error instanceof Error ? error.message : '未知错误'}`);
